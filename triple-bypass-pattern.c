@@ -8,13 +8,14 @@
 
 #include <xc.h>
 
-#define _XTAL_FREQ 4000000
-#define MAX_HOLD_MS 1000
-#define BTN_DEBOUNCE_MS 5
-#define TAP_MS 250
-#define MAX_LOOP_MS 60000
-#define SILENCE_PULSE_BEFORE 10
-#define SILENCE_PULSE_AFTER 10
+#define _XTAL_FREQ              4000000
+#define MAX_HOLD_MS             1000
+#define BTN_DEBOUNCE_MS         5
+#define TAP_MS                  250
+#define MAX_LOOP_MS             60000
+#define SILENCE_PULSE_BEFORE    10
+#define SILENCE_PULSE_AFTER     10
+#define PULSE_ON_MS             100
 
 #define BTN         GP0
 #define POT         GP1
@@ -39,7 +40,8 @@ signed int loopTime = 1000;
 signed int loopMoment = 0;
 signed int loopOffset = 0;
 signed int potValue;
-signed int lastPotValue =0;
+signed int lastPotValue = 0;
+signed int pulseCounter = 0;
 char gateOn = 0;
 enum modes { regular, hold, tap };
 enum modes mode;
@@ -154,7 +156,7 @@ void interrupt ISR(void) {
             }
         }
         
-        sinceLastPress++;
+        sinceLastPress++; // should this be capped?
         
         if (btnPressed == BTN_DEBOUNCE_MS && b.btnOn == 0 && b.modeChangeFlag == 0) {
             // normal tap
@@ -197,22 +199,30 @@ void interrupt ISR(void) {
             }
         }
         
-        if (mode == tap) {
-            loopOffset = b.potOffsetActive == 1 ? (potValue - 512) * 2 : 0;
-            if (loopTime + loopOffset < BTN_DEBOUNCE_MS) {
-                loopOffset = 0 - (loopTime - BTN_DEBOUNCE_MS);
-            }
-            if (loopMoment % (loopTime + loopOffset) == 0) {
+        loopOffset = b.potOffsetActive == 1 ? (potValue - 512) * 2 : 0;
+        if (loopTime + loopOffset < BTN_DEBOUNCE_MS) {
+            loopOffset = 0 - (loopTime - BTN_DEBOUNCE_MS);
+        }
+        if (loopMoment % (loopTime + loopOffset) == 0) {
+            PULSE = 1;
+            if (mode == tap) {
                 b.effectOn = b.effectOn == 1 ? 0 : 1;
-                PULSE = 1;
                 __delay_ms(SILENCE_PULSE_BEFORE);
                 MAIN_OUT = b.effectOn;
                 __delay_ms(SILENCE_PULSE_AFTER);
                 PULSE = 0;
-                loopMoment = 0;
             }
-            loopMoment++;
+            else {
+                pulseCounter = 0;
+            }
+            loopMoment = 0;
         }
+        pulseCounter = pulseCounter < 255 ? ++pulseCounter : 255;
+        if (pulseCounter == PULSE_ON_MS) {
+            PULSE = 0;
+            pulseCounter = 0;
+        }
+        loopMoment++;
 
     }
     INTCONbits.TMR0IF = 0;
